@@ -4,3 +4,7 @@
 MFRC522
 ArduinoJson
 EasyHTTP
+U8g2_for_Adafruit_GFX
+Adafruit Keypad
+Adafruit SSD1306
+Keypad

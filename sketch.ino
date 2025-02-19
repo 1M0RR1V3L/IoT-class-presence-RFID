@@ -2,6 +2,10 @@
 #include <WiFiClient.h>
 #include <ArduinoJson.h>
 #include <HTTPClient.h>
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+#include <Keypad.h>
 
 #define WIFI_SSID "Wokwi-GUEST"
 #define WIFI_PASSWORD ""
@@ -12,12 +16,30 @@
 #define GREEN_LED 17
 #define GREEN_LED2 27
 
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
+#define OLED_RESET -1
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+
+const byte ROWS = 4;
+const byte COLS = 4;
+char keys[ROWS][COLS] = {
+  {'1', '2', '3', 'A'},
+  {'4', '5', '6', 'B'},
+  {'7', '8', '9', 'C'},
+  {'*', '0', '#', 'D'}
+};
+
+byte rowPins[ROWS] = {13, 12, 14, 23}; // Linhas R1-R4
+byte colPins[COLS] = {22, 21, 16, 15}; // Colunas C1-C4
+
+Keypad keypad = Keypad(makeKeymap(keys), rowPins, colPins, ROWS, COLS);
 
 DynamicJsonDocument doc(128);
-String payload = "";
 String base_url = "https://api.tago.io/data";
 String TAGOIO_DEVICE_TOKEN = "2a91041c-8746-45c8-bd3a-b912cc8c9b54";
 bool useLed = true;
+String inputCode = "";  
 
 void signalLED(int ledId) {
   if (useLed) {
@@ -30,23 +52,22 @@ void signalLED(int ledId) {
 void connectToWiFi() {
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  Serial.print("Connecting to WiFi ");
+  Serial.print("Conectando ao WiFi: ");
   Serial.print(WIFI_SSID);
   
   while (WiFi.status() != WL_CONNECTED) {
     Serial.print('.');
     delay(1000);
   }
-  Serial.print("\nConnected! IP address: ");
-  Serial.println(WiFi.localIP());
+  Serial.println("\nWiFi Conectado! IP: " + WiFi.localIP().toString());
 }
 
-void sendTagoIoData(String student_id){
-  if ((WiFi.status() == WL_CONNECTED)) {
+void sendTagoIoData(String student_id) {
+  if (WiFi.status() == WL_CONNECTED) {
     HTTPClient http;
     http.begin(base_url);
     http.addHeader("Content-Type", "application/json");
-    http.addHeader("Device-Token", TAGOIO_DEVICE_TOKEN);  // Autenticação no TagoIO
+    http.addHeader("Device-Token", TAGOIO_DEVICE_TOKEN);
 
     doc["variable"] = "student_id";
     doc["value"] = student_id;
@@ -55,7 +76,7 @@ void sendTagoIoData(String student_id){
     serializeJson(doc, payload);
 
     int responseCode = http.POST(payload);
-    Serial.print("HTTP Response Code: ");
+    Serial.print("Código HTTP: ");
     Serial.println(responseCode);
 
     if (responseCode == 202) {
@@ -64,14 +85,12 @@ void sendTagoIoData(String student_id){
       signalLED(RED_LED);
     }
 
-    String response;
     if (responseCode > 0) {
-      response = http.getString();
-      Serial.println("Resposta do Servidor: " + response);
+      Serial.println("Resposta do servidor: " + http.getString());
     }
     http.end();
   } else {
-    Serial.println("Not connected to WiFi");
+    Serial.println("WiFi não conectado!");
   }
 }
 
@@ -79,21 +98,57 @@ void setup() {
   Serial.begin(115200);
   pinMode(GREEN_LED, OUTPUT);
   pinMode(RED_LED, OUTPUT);
+  pinMode(GREEN_LED2, OUTPUT);
+
   connectToWiFi();
-  Serial.println("\nDigite um ID NFC (simulado) e pressione Enter:");
+
+  if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
+    Serial.println("Erro ao inicializar OLED!");
+    while (true);
+  }
+
+  display.clearDisplay();
+  display.setTextSize(2);
+  display.setTextColor(WHITE);
+  display.setCursor(10, 20);
+  display.println("Pronto!");
+  display.display();
+
+  Serial.println("Digite um ID NFC:");
 }
 
 void loop() {
-  if (Serial.available() > 0) {
-    pinMode(GREEN_LED2, HIGH);
-    String student_id = Serial.readStringUntil('\n');
-    student_id.trim(); 
+  char key = keypad.getKey();
 
-    if (student_id.length() > 0) {
-      Serial.print("Enviando ID NFC para o TagoIO: ");
-      Serial.println(student_id);
-      sendTagoIoData(student_id);
+  if (key) {
+    Serial.print("Tecla pressionada: ");
+    Serial.println(key);
+
+    if (key == '#') { 
+      if (!inputCode.isEmpty()) {
+        Serial.println("Enviando para o TagoIO: " + inputCode);
+        sendTagoIoData(inputCode);
+
+        display.clearDisplay();
+        display.setCursor(10, 20);
+        display.println("Enviado:");
+        display.println(inputCode);
+        display.display();
+
+        inputCode = ""; 
+      }
+    } else if (key == '*') {  
+      if (!inputCode.isEmpty()) {
+        inputCode.remove(inputCode.length() - 1);
+      }
+    } else {
+      inputCode += key; 
     }
-    Serial.println("\nDigite outro ID NFC ou pressione Enter para reenviar:");
+
+    display.clearDisplay();
+    display.setCursor(10, 20);
+    display.println("Digitando:");
+    display.println(inputCode);
+    display.display();
   }
 }
